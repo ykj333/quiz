@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스피드 퀴즈</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.2.45/vue.global.prod.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sweetalert/2.1.2/sweetalert.min.js"></script>
+    <style>
+        .result-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 15rem;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 9999;
+            transition: opacity 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="app" class="min-h-screen flex flex-col">
+        <header class="bg-blue-600 text-white p-4">
+            <h1 class="text-2xl font-bold text-center">스피드 퀴즈</h1>
+        </header>
+
+        <main class="flex-grow container mx-auto p-4">
+            <div v-if="!gameStarted" class="text-center">
+                <button @click="startGame" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded">
+                    게임 시작
+                </button>
+            </div>
+
+            <div v-else class="flex justify-between items-start">
+                <div class="text-xl font-bold">시간: {{ timer }}</div>
+                <div class="text-xl font-bold">점수: {{ score }}</div>
+            </div>
+
+            <div v-if="gameStarted" class="mt-8">
+                <h2 class="text-xl font-bold mb-4">{{ currentQuiz.question }}</h2>
+                <div class="flex">
+                    <input v-model="userAnswer" @keyup.enter="checkAnswer" type="text" class="flex-grow p-2 border rounded-l" placeholder="답변을 입력하세요">
+                    <button @click="checkAnswer" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-r">
+                        확인
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-8">
+                <h3 class="text-lg font-bold mb-2">퀴즈 데이터 업로드</h3>
+                <div v-if="!uploadedFile"
+                    @dragover.prevent
+                    @drop.prevent="onFileDrop"
+                    @click="$refs.fileInput.click()"
+                    class="border-2 border-dashed border-gray-300 p-4 text-center cursor-pointer"
+                >
+                    .txt 파일을 여기에 드래그 앤 드롭하거나 클릭하여 업로드하세요
+                    <input type="file" @change="onFileChange" accept=".txt" class="hidden" ref="fileInput">
+                </div>
+                <div v-else class="border-2 border-gray-300 p-4 text-center">
+                    <p>업로드된 파일: {{ uploadedFile.name }}</p>
+                    <button @click="deleteFile" class="mt-2 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded">
+                        파일 삭제
+                    </button>
+                </div>
+            </div>
+
+            <!-- 새로 추가된 이모지 영역 -->
+            <div class="text-center mt-8">
+                <span class="text-9xl">🤓</span>
+            </div>
+        </main>
+
+        <footer class="bg-gray-200 p-4 text-center">
+            <p>&copy; 2024 Runbuild</p>
+        </footer>
+
+        <transition name="fade">
+            <div v-if="showOverlay" class="result-overlay" :style="{ color: lastAnswerCorrect ? 'green' : 'red', opacity: overlayOpacity }">
+                {{ lastAnswerCorrect ? '○' : '✕' }}
+            </div>
+        </transition>
+    </div>
+
+    <script>
+        const app = Vue.createApp({
+            data() {
+                return {
+                    defaultQuizData: [
+                        { question: "대한민국의 수도는?", answer: "서울" },
+                        { question: "1+1=?", answer: "2" },
+                        { question: "태양계에서 가장 큰 행성은?", answer: "목성" },
+                        { question: "물의 화학식은?", answer: "H2O" },
+                        { question: "세계에서 가장 긴 강은?", answer: "나일강" },
+                        { question: "인류 최초로 달에 착륙한 사람은?", answer: "닐 암스트롱" },
+                        { question: "셰익스피어의 대표작 중 하나는?", answer: "햄릿" },
+                        { question: "DNA의 완전한 이름은?", answer: "디옥시리보핵산" },
+                        { question: "빛의 속도는? (숫자만)", answer: "299792458" },
+                        { question: "지구에서 가장 높은 산은?", answer: "에베레스트" },
+                        { question: "피카소의 대표적인 화풍은?", answer: "입체주의" },
+                        { question: "원주율(π)의 처음 세 자리는?", answer: "3.14" },
+                        { question: "인간의 심장은 몇 개의 방으로 이루어져 있나?", answer: "4" }
+                    ],
+                    quizData: [],
+                    currentQuiz: {},
+                    userAnswer: "",
+                    score: 0,
+                    timer: 60,
+                    gameStarted: false,
+                    intervalId: null,
+                    uploadedFile: null,
+                    totalQuestions: 0,
+                    correctAnswers: 0,
+                    wrongAnswers: 0,
+                    lastAnswerCorrect: null,
+                    showOverlay: false,
+                    overlayOpacity: 0,
+                    usedQuestions: new Set(),
+                    isProcessing: false
+                }
+            },
+            created() {
+                this.quizData = [...this.defaultQuizData];
+            },
+            methods: {
+                startGame() {
+                    this.gameStarted = true;
+                    this.score = 0;
+                    this.timer = 60;
+                    this.totalQuestions = 0;
+                    this.correctAnswers = 0;
+                    this.wrongAnswers = 0;
+                    this.usedQuestions.clear();
+                    this.nextQuiz();
+                    this.intervalId = setInterval(() => {
+                        this.timer--;
+                        if (this.timer <= 0) this.endGame();
+                    }, 1000);
+                },
+                nextQuiz() {
+                    this.isProcessing = false;
+                    this.showOverlay = false;
+                    this.overlayOpacity = 0;
+                    this.lastAnswerCorrect = null;
+                    
+                    const availableQuizzes = this.quizData.filter(quiz => !this.usedQuestions.has(quiz.question));
+                    if (availableQuizzes.length === 0) {
+                        this.usedQuestions.clear();
+                        availableQuizzes.push(...this.quizData);
+                    }
+                    const randomIndex = Math.floor(Math.random() * availableQuizzes.length);
+                    this.currentQuiz = availableQuizzes[randomIndex];
+                    this.usedQuestions.add(this.currentQuiz.question);
+                    this.userAnswer = "";
+                },
+                checkAnswer() {
+                    if (this.isProcessing) return;
+                    this.isProcessing = true;
+
+                    this.totalQuestions++;
+                    const isCorrect = this.userAnswer.toLowerCase() === this.currentQuiz.answer.toLowerCase();
+                    if (isCorrect) {
+                        this.score++;
+                        this.correctAnswers++;
+                    } else {
+                        this.wrongAnswers++;
+                    }
+                    this.showResultOverlay(isCorrect);
+                },
+                showResultOverlay(isCorrect) {
+                    this.lastAnswerCorrect = isCorrect;
+                    this.showOverlay = true;
+                    this.overlayOpacity = 1;
+
+                    setTimeout(() => {
+                        this.overlayOpacity = 0;
+                        setTimeout(() => {
+                            this.showOverlay = false;
+                            this.nextQuiz();
+                        }, 300); // 페이드 아웃 시간
+                    }, 500); // 오버레이 표시 시간
+                },
+                endGame() {
+                    clearInterval(this.intervalId);
+                    this.gameStarted = false;
+                    const accuracyRate = this.totalQuestions > 0 ? (this.correctAnswers / this.totalQuestions * 100).toFixed(2) : 0;
+                    swal({
+                        title: "게임 종료!",
+                        text: `총 문제 수: ${this.totalQuestions}\n정답 개수: ${this.correctAnswers}\n틀린 개수: ${this.wrongAnswers}\n정답률: ${accuracyRate}%`,
+                        icon: "info",
+                        button: "다시 플레이",
+                    });
+                },
+                onFileDrop(e) {
+                    const file = e.dataTransfer.files[0];
+                    this.handleFile(file);
+                },
+                onFileChange(e) {
+                    const file = e.target.files[0];
+                    this.handleFile(file);
+                },
+                handleFile(file) {
+                    if (file.type !== "text/plain") {
+                        swal("오류", ".txt 파일만 업로드 가능합니다", "error");
+                        return;
+                    }
+
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const content = e.target.result;
+                        this.parseQuizData(content);
+                    };
+                    reader.readAsText(file);
+                    this.uploadedFile = file;
+                },
+                parseQuizData(content) {
+                    const lines = content.split('\n');
+                    const newQuizData = lines.map(line => {
+                        const [question, answer] = line.split(':').map(item => item.trim());
+                        return { question, answer };
+                    }).filter(item => item.question && item.answer);
+
+                    if (newQuizData.length > 0) {
+                        this.quizData = newQuizData;
+                        this.usedQuestions.clear();
+                        swal("성공", `${newQuizData.length}개의 퀴즈 문제가 로드되었습니다`, "success");
+                    } else {
+                        swal("오류", "파일에서 유효한 퀴즈 데이터를 찾을 수 없습니다", "error");
+                    }
+                },
+                deleteFile() {
+                    this.uploadedFile = null;
+                    this.$refs.fileInput.value = '';
+                    this.quizData = [...this.defaultQuizData];
+                    this.usedQuestions.clear();
+                    swal("알림", "기본 퀴즈 데이터로 복원되었습니다", "info");
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
