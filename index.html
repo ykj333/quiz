@@ -23,6 +23,18 @@
             z-index: 9999;
             transition: opacity 0.3s ease-in-out;
         }
+        .answer-box {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #fef08a;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 1000;
+            transition: opacity 0.3s ease-in-out;
+        }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -87,6 +99,17 @@
                 {{ lastAnswerCorrect ? '○' : '✕' }}
             </div>
         </transition>
+
+        <transition name="fade">
+            <div v-if="showAnswerBox" class="answer-box" :style="{ opacity: answerBoxOpacity }">
+                정답: {{ currentQuiz.answer }}
+            </div>
+        </transition>
+
+        <audio ref="backgroundMusic" loop>
+            <source src="https://example.com/kids_background_music.mp3" type="audio/mpeg">
+            Your browser does not support the audio element.
+        </audio>
     </div>
 
     <script>
@@ -123,7 +146,9 @@
                     showOverlay: false,
                     overlayOpacity: 0,
                     usedQuestions: new Set(),
-                    isProcessing: false
+                    isProcessing: false,
+                    showAnswerBox: false,
+                    answerBoxOpacity: 0
                 }
             },
             created() {
@@ -143,12 +168,15 @@
                         this.timer--;
                         if (this.timer <= 0) this.endGame();
                     }, 1000);
+                    this.$refs.backgroundMusic.play();
                 },
                 nextQuiz() {
                     this.isProcessing = false;
                     this.showOverlay = false;
                     this.overlayOpacity = 0;
                     this.lastAnswerCorrect = null;
+                    this.showAnswerBox = false;
+                    this.answerBoxOpacity = 0;
                     
                     const availableQuizzes = this.quizData.filter(quiz => !this.usedQuestions.has(quiz.question));
                     if (availableQuizzes.length === 0) {
@@ -171,6 +199,8 @@
                         this.correctAnswers++;
                     } else {
                         this.wrongAnswers++;
+                        this.showAnswerBox = true;
+                        this.answerBoxOpacity = 1;
                     }
                     this.showResultOverlay(isCorrect);
                 },
@@ -181,11 +211,15 @@
 
                     setTimeout(() => {
                         this.overlayOpacity = 0;
+                        if (this.showAnswerBox) {
+                            this.answerBoxOpacity = 0;
+                        }
                         setTimeout(() => {
                             this.showOverlay = false;
+                            this.showAnswerBox = false;
                             this.nextQuiz();
                         }, 300); // 페이드 아웃 시간
-                    }, 500); // 오버레이 표시 시간
+                    }, 1500); // 오버레이와 정답 박스 표시 시간
                 },
                 endGame() {
                     clearInterval(this.intervalId);
@@ -197,6 +231,8 @@
                         icon: "info",
                         button: "다시 플레이",
                     });
+                    this.$refs.backgroundMusic.pause();
+                    this.$refs.backgroundMusic.currentTime = 0;
                 },
                 onFileDrop(e) {
                     const file = e.dataTransfer.files[0];
